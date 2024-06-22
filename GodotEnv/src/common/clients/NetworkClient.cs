@@ -1,11 +1,15 @@
 namespace Chickensoft.GodotEnv.Common.Clients;
 
 using System;
+using System.Net;
 using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using CliFx.Exceptions;
 using Downloader;
+using DownloadProgressChangedEventArgs = Downloader.DownloadProgressChangedEventArgs;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 
 public interface INetworkClient {
   IDownloadService DownloadService { get; }
@@ -27,6 +31,7 @@ public interface INetworkClient {
   );
 
   public Task<HttpResponseMessage> WebRequestGetAsync(string url);
+  public Task<HttpResponseMessage> WebRequestGetAsyncWithProxy(string url, string? proxyUrl = null);
 }
 
 public class NetworkClient : INetworkClient {
@@ -45,8 +50,21 @@ public class NetworkClient : INetworkClient {
 
   public async Task<HttpResponseMessage> WebRequestGetAsync(string url) {
     _client ??= new HttpClient();
-
     return await _client.GetAsync(url);
+  }
+
+  public async Task<HttpResponseMessage> WebRequestGetAsyncWithProxy(string url, string? proxyUrl = null) {
+    var proxy = string.IsNullOrEmpty(proxyUrl) ? WebRequest.GetSystemWebProxy() : new WebProxy(proxyUrl);
+    var serviceProvider = new ServiceCollection()
+      .AddHttpClient(Options.DefaultName)
+      .ConfigurePrimaryHttpMessageHandler(() => new HttpClientHandler { Proxy = proxy })
+      .Services
+      .BuildServiceProvider();
+
+    var factory = serviceProvider.GetService<IHttpClientFactory>();
+    var client = factory.CreateClient();
+
+    return await client.GetAsync(url);
   }
 
   public async Task DownloadFileAsync(
@@ -84,6 +102,7 @@ public class NetworkClient : INetworkClient {
           "🚨 Download cancelled!"
         );
       }
+
       if (args.Error != null) {
         throw new CommandException(
           $"Download failed. {args.Error.Message}"
